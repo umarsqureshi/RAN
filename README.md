@@ -26,6 +26,7 @@ Differential cross sections are the currency of scientific exchange in particle 
   <img src="figs/distribution_zg.png"  width="48.55%" />
 </p>
 
+<p align="center">
 
 | Observable | Generation | RAN | OmniFold |
 |---|---|---|---|
@@ -35,6 +36,8 @@ Differential cross sections are the currency of scientific exchange in particle 
 | $\tau_{21}$ | 0.254 | **0.032** ± 0.011 | 0.067 ± 0.004 |
 | $z_g$ | 0.107 | **0.018** ± 0.005 | 0.060 ± 0.008 |
 | $\ln \rho$ | 0.268 | 0.024 ± 0.007 | **0.015** ± 0.005 |
+
+</p>
 
 Wasserstein distance between the unfolded and true distributions predicted by RAN and OmniFold for the six substructure observables. Lower numbers indicate closer agreement with truth. The best score for each observable is indicated in boldface. Wasserstein distance between Generation and Truth is included as a baseline. The errors represent a one standard deviation interval obtained by bootstrapping.
 
