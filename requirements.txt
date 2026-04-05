@@ -1,0 +1,7 @@
+torch>=1.12
+numpy>=1.21
+scipy>=1.7
+scikit-learn>=1.0
+matplotlib>=3.5
+tqdm>=4.60
+energyflow>=1.3
