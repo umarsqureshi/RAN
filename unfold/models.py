@@ -6,8 +6,8 @@ import torch.nn.functional as F
 
 
 class RANGenerator(nn.Module):
-    """Generator matching the paper.
-    Architecture: depth x [Dense -> LeakyReLU -> BatchNorm -> Dropout(0.2)]
+    """Generator Architecture: 
+    depth x [Dense -> LeakyReLU -> BatchNorm -> Dropout(0.2)]
                   -> Dense(1) -> 1 + log(softplus(x) + 1/e)
     Output activation: 1 + log(softplus(x) + 1/e).
     """
@@ -38,9 +38,8 @@ class RANGenerator(nn.Module):
 
 
 class RANCritic(nn.Module):
-    """Critic matching the paper (Sec. III C, Fig. 3).
-
-    Architecture: depth x [SpectralNorm(Dense) -> LeakyReLU -> Dropout -> LayerNorm]
+    """Critic Architecture: 
+    depth x [SpectralNorm(Dense) -> LeakyReLU -> Dropout -> LayerNorm]
                   -> SpectralNorm(Dense(1))  (linear output)
     """
     def __init__(self, input_dim, width=50, depth=3, dropout=0.2):
