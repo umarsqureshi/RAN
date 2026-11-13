@@ -21,10 +21,13 @@ def run_ran(arrays, device, n_epochs=100, n_runs=20, val_frac=0.25,
             batch_size=8192, dropout=0.0):
     """Train RAN on 6D jet substructure data using WGAN-GP.
       - Generator: 1+log(softplus) output, LeakyReLU, BN, Dropout(0.2)
-      - Critic: spectral norm, LeakyReLU, LayerNorm, linear output
+      - Critic: Dense (no spectral norm), LeakyReLU, LayerNorm, linear output
       - RMSProp optimizer, batch_size=256
       - 3 critic : 2 generator update ratio
       - Gradient penalty lambda=10
+      - Model selection: detector-level Wasserstein distance between
+        reweighted Herwig reco and Pythia reco on the held-out split (no
+        truth-level information is used to pick the checkpoint)
     """
     n_vars = len(OBS_NAMES)
     N = len(arrays['m_true'])
@@ -97,9 +100,13 @@ def run_ran(arrays, device, n_epochs=100, n_runs=20, val_frac=0.25,
         loss_fn_critic = WGANCriticLoss(gp_lambda=gp_lambda)
         loss_fn_gen = WGANGenLoss(lambda_mean=lambda_mean, lambda_var=lambda_var)
 
-        # Validation: track Wasserstein distance per observable
+        # Held-out sets. Truth-level arrays are used only for reporting;
+        # reco-level arrays drive model selection (observable in a real
+        # measurement: Pythia reco plays the role of "data").
         data_set_1 = X_test_truth[Y_test == 1]  # Pythia gen (test)
         data_set_0 = X_test_truth[Y_test == 0]  # Herwig gen (test)
+        reco_set_1 = X_test_reco[Y_test == 1]   # Pythia reco (test) -- "data"
+        reco_set_0 = X_test_reco[Y_test == 0]   # Herwig reco (test)
 
         best_metric = float('inf')
         best_gen_state = None
@@ -110,7 +117,7 @@ def run_ran(arrays, device, n_epochs=100, n_runs=20, val_frac=0.25,
               f"batch_size={batch_size}")
         print(f"  Generator: {gen_depth}x Dense({gen_width}) [LeakyReLU->BN->Dropout({dropout})], "
               f"output=1+log(sp+1/e), lr={lr_gen}")
-        print(f"  Critic:    {disc_depth}x Dense({disc_width}) [SpectralNorm->LeakyReLU->Dropout->LayerNorm], "
+        print(f"  Critic:    {disc_depth}x Dense({disc_width}) [no SpectralNorm, LeakyReLU->Dropout->LayerNorm], "
               f"lr={lr_disc}, GP_lambda={gp_lambda}")
         print(f"  Optimizer: RMSProp, updates per batch: {n_disc} disc, {m_gen} gen, "
               f"\u03bb_mean={lambda_mean}, \u03bb_var={lambda_var}")
@@ -192,6 +199,17 @@ def run_ran(arrays, device, n_epochs=100, n_runs=20, val_frac=0.25,
                     w_test_raw = generator(alt_truth_test).cpu().numpy().flatten()
                     w_test = w_test_raw / (w_test_raw.mean() + 1e-8)
 
+                # Selection metric: detector-level WD (reweighted Herwig reco
+                # vs Pythia reco). Weights are per-event, so the same w_test
+                # applies to the reco row of each Herwig event.
+                reco_wd_per_obs = [
+                    wasserstein_distance(reco_set_1[:, i], reco_set_0[:, i],
+                                         v_weights=w_test)
+                    for i in range(n_vars)
+                ]
+                mean_reco_wd = np.mean(reco_wd_per_obs)
+
+                # Diagnostic only: truth-level WD (not used for selection)
                 wd_per_obs = [
                     wasserstein_distance(data_set_1[:, i], data_set_0[:, i],
                                          v_weights=w_test)
@@ -199,8 +217,8 @@ def run_ran(arrays, device, n_epochs=100, n_runs=20, val_frac=0.25,
                 ]
                 mean_wd = np.mean(wd_per_obs)
 
-                if mean_wd < best_metric:
-                    best_metric = mean_wd
+                if mean_reco_wd < best_metric:
+                    best_metric = mean_reco_wd
                     best_epoch = epoch + 1
                     best_gen_state = {
                         k: v.clone() for k, v in generator.state_dict().items()
@@ -209,11 +227,16 @@ def run_ran(arrays, device, n_epochs=100, n_runs=20, val_frac=0.25,
                 if verbose and (epoch + 1) % max(1, min(50, n_epochs // 10)) == 0:
                     wd_str = " ".join(f"{OBS_NAMES[i]}={wd_per_obs[i]:.4f}"
                                       for i in range(n_vars))
+                    reco_wd_str = " ".join(
+                        f"{OBS_NAMES[i]}={reco_wd_per_obs[i]:.4f}"
+                        for i in range(n_vars))
                     print(f"\n  Epoch {epoch+1:4d}/{n_epochs}: "
                           f"D={avg_d:.4f}  G={avg_g:.4f}  "
-                          f"mean_WD={mean_wd:.6f}"
+                          f"reco_WD={mean_reco_wd:.6f} (selection)  "
+                          f"truth_WD={mean_wd:.6f}"
                           f"{'  *best*' if best_epoch == epoch + 1 else ''}")
-                    print(f"    WD per obs: {wd_str}")
+                    print(f"    Reco WD per obs:  {reco_wd_str}")
+                    print(f"    Truth WD per obs: {wd_str}")
                     print(f"    Gen weights: "
                           f"mean={w_test.mean():.4f} std={w_test.std():.4f} "
                           f"min={w_test.min():.4f} max={w_test.max():.4f}")
@@ -224,7 +247,8 @@ def run_ran(arrays, device, n_epochs=100, n_runs=20, val_frac=0.25,
         if best_gen_state is not None:
             generator.load_state_dict(best_gen_state)
             if verbose:
-                print(f"\n  Restored best epoch {best_epoch} (mean_WD={best_metric:.6f})")
+                print(f"\n  Restored best epoch {best_epoch} "
+                      f"(reco mean_WD={best_metric:.6f})")
 
         # Extract final weights for Herwig gen test set (normalized to mean=1)
         generator.eval()

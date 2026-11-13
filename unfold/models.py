@@ -39,22 +39,24 @@ class RANGenerator(nn.Module):
 
 class RANCritic(nn.Module):
     """Critic Architecture: 
-    depth x [SpectralNorm(Dense) -> LeakyReLU -> Dropout -> LayerNorm]
-                  -> SpectralNorm(Dense(1))  (linear output)
+    depth x [Dense -> LeakyReLU -> Dropout -> LayerNorm]
+                  -> Dense(1)  (linear output)
+
+    No spectral normalization is applied; the WGAN gradient penalty
+    (WGANCriticLoss in losses.py) is the sole Lipschitz constraint.
     """
     def __init__(self, input_dim, width=50, depth=3, dropout=0.2):
         super().__init__()
         layers = []
         in_features = input_dim
         for i in range(depth):
-            linear = nn.utils.spectral_norm(nn.Linear(in_features, width))
-            layers.append(linear)
+            layers.append(nn.Linear(in_features, width))
             layers.append(nn.LeakyReLU(0.2))
             layers.append(nn.Dropout(dropout))
             layers.append(nn.LayerNorm(width))
             in_features = width
         self.backbone = nn.Sequential(*layers)
-        self.head = nn.utils.spectral_norm(nn.Linear(in_features, 1))
+        self.head = nn.Linear(in_features, 1)
 
     def forward(self, x):
         # The outputs of the critic are clipped
